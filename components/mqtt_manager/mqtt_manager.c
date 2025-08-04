@@ -1,0 +1,180 @@
+/**
+ * SPDX-License-Identifier: GPLv2
+ *
+ * Copyright (C) 2025  Vinicius Silva <silva.viniciusr@gmail.com>
+ *
+ * This program is free software; you can redistribute it and/or modify
+ * it under the terms of the GNU General Public License version 2, as
+ * published by the Free Software Foundation.
+ *
+ * This program is distributed in the hope that it will be useful,
+ * but WITHOUT ANY WARRANTY; without even the implied warranty of
+ * MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+ * GNU General Public License for more details.
+ *
+ * You should have received a copy of the GNU General Public License along
+ * with this program; if not, write to the Free Software Foundation, Inc.,
+ * 51 Franklin Street, Fifth Floor, Boston, MA 02110-1301 USA.
+ */
+
+/**
+ * @file mqtt_manager.c
+ *
+ * @brief Encapsulation of esp-idf mqtt_client library.
+ *
+ * @author Vinicius Silva <silva.viniciusr@gmail.com>
+ *
+ * @date July 12th 2025
+ *
+ * Component based on
+ * https://github.com/espressif/esp-idf/tree/v5.4.2/examples/protocols/mqtt/ssl
+ *
+ */
+
+#include <stdint.h>
+#include <string.h>
+#include <sys/param.h>
+#include "esp_err.h"
+#include "esp_event.h"
+#include "mqtt_client.h"
+#include "esp_crt_bundle.h"
+#include "esp_log.h"
+#include "mqtt_manager.h"
+
+#ifdef CONFIG_MQTT_NULL_CLIENT_ID
+#define CONFIG_MQTT_NULL_CLIENT_ID true
+#else
+#define CONFIG_MQTT_NULL_CLIENT_ID false
+#endif
+
+static const char *s_TAG = "MQTT_M";
+
+struct driver_state {
+
+/* Is driver initialised? */
+  bool initialised;
+
+/* MQTT client handle */
+  esp_mqtt_client_handle_t client;
+
+/* Error check variable */
+  esp_err_t rc;
+};
+static struct driver_state s_d_state = {0};
+
+/*
+ * @brief Event handler registered to receive MQTT events
+ *
+ *  This function is called by the MQTT client event loop.
+ *
+ * @param handler_args user data registered to the event.
+ * @param base Event base for the handler(always MQTT Base in this example).
+ * @param event_id The id for the received event.
+ * @param event_data The data for the event, esp_mqtt_event_handle_t.
+ */
+static void s_MqttEventHandler(void *handler_args, esp_event_base_t base, int32_t event_id, void *event_data) {
+
+  ESP_LOGD(s_TAG, "Event dispatched from event loop base=%s, event_id=%" PRIi32, base, event_id);
+  esp_mqtt_event_handle_t event = event_data;
+  switch ((esp_mqtt_event_id_t)event_id) {
+  case MQTT_EVENT_CONNECTED:
+    ESP_LOGI(s_TAG, "MQTT_EVENT_CONNECTED");
+    break;
+
+  case MQTT_EVENT_DISCONNECTED:
+    ESP_LOGI(s_TAG, "MQTT_EVENT_DISCONNECTED");
+    break;
+
+  case MQTT_EVENT_SUBSCRIBED:
+    ESP_LOGI(s_TAG, "MQTT_EVENT_SUBSCRIBED, msg_id=%d", event->msg_id);
+    break;
+
+  case MQTT_EVENT_UNSUBSCRIBED:
+    ESP_LOGI(s_TAG, "MQTT_EVENT_UNSUBSCRIBED, msg_id=%d", event->msg_id);
+    break;
+
+  case MQTT_EVENT_PUBLISHED:
+    ESP_LOGI(s_TAG, "MQTT_EVENT_PUBLISHED, msg_id=%d", event->msg_id);
+    break;
+
+  case MQTT_EVENT_DATA:
+    ESP_LOGI(s_TAG, "MQTT_EVENT_DATA");
+//    printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
+//    printf("DATA=%.*s\r\n", event->data_len, event->data);
+    break;
+
+  case MQTT_EVENT_ERROR:
+    ESP_LOGI(s_TAG, "MQTT_EVENT_ERROR");
+    if (event->error_handle->error_type == MQTT_ERROR_TYPE_TCP_TRANSPORT) {
+      ESP_LOGI(s_TAG, "Last error code reported from esp-tls: 0x%x", event->error_handle->esp_tls_last_esp_err);
+      ESP_LOGI(s_TAG, "Last tls stack error number: 0x%x", event->error_handle->esp_tls_stack_err);
+      ESP_LOGI(s_TAG, "Last captured errno : %d (%s)",  event->error_handle->esp_transport_sock_errno,
+               strerror(event->error_handle->esp_transport_sock_errno));
+    } else if (event->error_handle->error_type == MQTT_ERROR_TYPE_CONNECTION_REFUSED) {
+      ESP_LOGI(s_TAG, "Connection refused error: 0x%x", event->error_handle->connect_return_code);
+    } else {
+      ESP_LOGW(s_TAG, "Unknown error type: 0x%x", event->error_handle->error_type);
+    }
+    break;
+
+  default:
+    ESP_LOGI(s_TAG, "Other event id:%d", event->event_id);
+    break;
+  }
+}
+
+esp_err_t MqttInit(void) {
+
+  if (s_d_state.initialised) {
+    return s_d_state.rc = ESP_ERR_INVALID_STATE;
+  }
+
+  const esp_mqtt_client_config_t mqtt_cfg = {
+    .broker = {
+      .address.uri = CONFIG_MQTT_BROKER_URI,
+      .verification.crt_bundle_attach = esp_crt_bundle_attach
+    },
+    .credentials = {
+      .username = CONFIG_MQTT_USERNAME,
+      .authentication.password = CONFIG_MQTT_PASSWORD,
+      .set_null_client_id = CONFIG_MQTT_NULL_CLIENT_ID
+    }
+  };
+
+  s_d_state.client = esp_mqtt_client_init(&mqtt_cfg);
+  if (!s_d_state.client) {
+    return s_d_state.rc = ESP_FAIL;
+  }
+
+  /* The last argument may be used to pass data to the event handler, in this example s_MqttEventHandler */
+  s_d_state.rc = esp_mqtt_client_register_event(s_d_state.client, ESP_EVENT_ANY_ID, s_MqttEventHandler, NULL);
+  if (s_d_state.rc)
+    return s_d_state.rc;
+
+  s_d_state.rc = esp_mqtt_client_start(s_d_state.client);
+  if (!s_d_state.rc)
+    s_d_state.initialised = true;
+  return s_d_state.rc;
+}
+
+esp_err_t MqttPublish(const char *topic, const char *message, int len, int qos, int retain) {
+
+  if (!s_d_state.initialised)
+    return ESP_ERR_INVALID_STATE;
+
+  esp_err_t rc = esp_mqtt_client_publish(s_d_state.client, topic, message, len, qos, retain);
+  if (rc < 0)
+    return ESP_FAIL;
+  return ESP_OK;
+}
+
+esp_err_t MqttSubscribe(const char *topic, int qos) {
+
+  if (!s_d_state.initialised)
+    return ESP_ERR_INVALID_STATE;
+
+  if (esp_mqtt_client_subscribe(s_d_state.client, topic, qos) < 0)
+    return ESP_FAIL;
+
+  return ESP_OK;
+}

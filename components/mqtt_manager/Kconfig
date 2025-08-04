@@ -1,0 +1,19 @@
+menu "MQTT Manager"
+
+    config MQTT_BROKER_URI
+        string "MQTT Broker URL"
+        default "mqtts://mqtt.eclipseprojects.io:8883"
+
+    config MQTT_USERNAME
+        string "MQTT username"
+        default "myusername"
+
+    config MQTT_PASSWORD
+        string "MQTT password"
+        default "mypassword"
+
+    config MQTT_NULL_CLIENT_ID
+        bool "MQTT null client id"
+        default true
+
+endmenu
