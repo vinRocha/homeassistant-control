@@ -42,12 +42,18 @@
 #include "mqtt_manager.h"
 
 #ifdef CONFIG_MQTT_NULL_CLIENT_ID
-#define CONFIG_MQTT_NULL_CLIENT_ID true
+#define MQTT_NULL_CLIENT_ID true
 #else
-#define CONFIG_MQTT_NULL_CLIENT_ID false
+#define MQTT_NULL_CLIENT_ID false
 #endif
 
 static const char *s_TAG = "MQTT_M";
+
+typedef struct subscriptions {
+  const char *topic;
+  mqtt_subscription_cb callback;
+  struct subscriptions *next;
+} subscriptions;
 
 struct driver_state {
 
@@ -56,6 +62,10 @@ struct driver_state {
 
 /* MQTT client handle */
   esp_mqtt_client_handle_t client;
+
+/* MQTT subscriptions */
+  subscriptions *head;
+  subscriptions *tail;
 
 /* Error check variable */
   esp_err_t rc;
@@ -76,6 +86,7 @@ static void s_MqttEventHandler(void *handler_args, esp_event_base_t base, int32_
 
   ESP_LOGD(s_TAG, "Event dispatched from event loop base=%s, event_id=%" PRIi32, base, event_id);
   esp_mqtt_event_handle_t event = event_data;
+  subscriptions *current;
   switch ((esp_mqtt_event_id_t)event_id) {
   case MQTT_EVENT_CONNECTED:
     ESP_LOGI(s_TAG, "MQTT_EVENT_CONNECTED");
@@ -99,8 +110,15 @@ static void s_MqttEventHandler(void *handler_args, esp_event_base_t base, int32_
 
   case MQTT_EVENT_DATA:
     ESP_LOGI(s_TAG, "MQTT_EVENT_DATA");
-//    printf("TOPIC=%.*s\r\n", event->topic_len, event->topic);
-//    printf("DATA=%.*s\r\n", event->data_len, event->data);
+    current = s_d_state.head;
+    while (current != tail) {
+        if (!strncmp(event->topic, current->topic, event->topic_len)) {
+          if (current->callback)
+            current->callback(event->data, event->data_len);
+          break;
+        }
+        current = current->next;
+    }
     break;
 
   case MQTT_EVENT_ERROR:
@@ -137,7 +155,7 @@ esp_err_t MqttInit(void) {
     .credentials = {
       .username = CONFIG_MQTT_USERNAME,
       .authentication.password = CONFIG_MQTT_PASSWORD,
-      .set_null_client_id = CONFIG_MQTT_NULL_CLIENT_ID
+      .set_null_client_id = MQTT_NULL_CLIENT_ID
     }
   };
 
@@ -152,9 +170,16 @@ esp_err_t MqttInit(void) {
     return s_d_state.rc;
 
   s_d_state.rc = esp_mqtt_client_start(s_d_state.client);
-  if (!s_d_state.rc)
-    s_d_state.initialised = true;
-  return s_d_state.rc;
+  if (s_d_state.rc)
+    return s_d_state.rc;
+
+  s_d_state.head = (subscriptions*) calloc(sizeof(subscriptions));
+  if (!s_d_state.head)
+    return ESP_ERR_NO_MEM;
+
+  s_d_state.tail = s_d_state.head;
+  s_d_state.initialised = true;
+  return ESP_OK;
 }
 
 esp_err_t MqttPublish(const char *topic, const char *message, int len, int qos, int retain) {
@@ -168,13 +193,20 @@ esp_err_t MqttPublish(const char *topic, const char *message, int len, int qos, 
   return ESP_OK;
 }
 
-esp_err_t MqttSubscribe(const char *topic, int qos) {
+esp_err_t MqttSubscribe(const char *topic, int qos, mqtt_subscription_cb callback) {
 
   if (!s_d_state.initialised)
     return ESP_ERR_INVALID_STATE;
 
+  if(!s_d_state.tail)
+    return ESP_ERR_NO_MEM;
+
   if (esp_mqtt_client_subscribe(s_d_state.client, topic, qos) < 0)
     return ESP_FAIL;
 
+  s_d_state.tail->topic = topic;
+  s_d_state.tail->callback = callback;
+  s_d_state.tail->next = (subscriptions*) calloc(sizeof(subscriptions));
+  s_d_state.tail = s_d_state.tail->next;
   return ESP_OK;
 }
