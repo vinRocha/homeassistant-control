@@ -18,16 +18,13 @@
  */
 
 /**
- * @file mqtt_manager.h
+ * @file mqtt_switch.h
  *
- * @brief interface to interact with mqtt_manager component.
+ * @brief mqtt_switch Class.
  *
  * @author Vinicius Silva <silva.viniciusr@gmail.com>
  *
- * @date July 12th 2025
- *
- * Component based on
- * https://github.com/espressif/esp-idf/tree/v5.4.2/examples/protocols/mqtt/ssl
+ * @date August 04th 2025
  *
  */
 
@@ -35,17 +32,21 @@
 
 #include "esp_err.h"
 
-#ifdef __cplusplus
-extern "C" {
-#endif
+class MqttSwitch {
+public:
+  MqttSwitch();
+  esp_err_t Connect();
+  esp_err_t set();
+  esp_err_t reset();
+  esp_err_t toggle();
 
-typedef void (*mqtt_subscription_cb)(const char *data, int data_len);
-
-esp_err_t MqttInit(void);
-esp_err_t MqttPublish(const char *topic, const char *message, int len, int qos, int retain);
-esp_err_t MqttSubscribe(const char *topic, int qos, mqtt_subscription_cb callback);
-esp_err_t MqttUnsubscribe(const char *topic);
-
-#ifdef __cplusplus
-} // extern "C"
-#endif
+private:
+  static const int c_switch_size  = 400;
+  static const int c_command_size =  30;
+  static const int c_state_size   =  30;
+  static unsigned s_m_count;
+  unsigned char m_state;
+  const unsigned m_index;
+  void mCallback(const char *data, int data_len);
+  esp_err_t PublishState();
+};

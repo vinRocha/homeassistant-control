@@ -111,7 +111,7 @@ static void s_MqttEventHandler(void *handler_args, esp_event_base_t base, int32_
   case MQTT_EVENT_DATA:
     ESP_LOGI(s_TAG, "MQTT_EVENT_DATA");
     current = s_d_state.head;
-    while (current != tail) {
+    while (current != s_d_state.tail) {
         if (!strncmp(event->topic, current->topic, event->topic_len)) {
           if (current->callback)
             current->callback(event->data, event->data_len);
@@ -173,7 +173,7 @@ esp_err_t MqttInit(void) {
   if (s_d_state.rc)
     return s_d_state.rc;
 
-  s_d_state.head = (subscriptions*) calloc(sizeof(subscriptions));
+  s_d_state.head = (subscriptions*) calloc(1, sizeof(subscriptions));
   if (!s_d_state.head)
     return ESP_ERR_NO_MEM;
 
@@ -206,7 +206,7 @@ esp_err_t MqttSubscribe(const char *topic, int qos, mqtt_subscription_cb callbac
 
   s_d_state.tail->topic = topic;
   s_d_state.tail->callback = callback;
-  s_d_state.tail->next = (subscriptions*) calloc(sizeof(subscriptions));
+  s_d_state.tail->next = (subscriptions*) calloc(1, sizeof(subscriptions));
   s_d_state.tail = s_d_state.tail->next;
   return ESP_OK;
 }

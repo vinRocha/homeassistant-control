@@ -41,48 +41,45 @@
 #include "protocol_examples_common.h"
 #include "driver/gpio.h"
 #include "mqtt_manager.h"
+#include "mqtt_switch.h"
 #include "esp_timer.h"
 #include "esp_err.h"
 #include "esp_log.h"
 #include "images.h"
 #include "oled_driver.h"
 
-#define BUTTON_GPIO          (3)
-
-#define HA_CONFIG_MSG        "{\"automation_type\":\"trigger\",\"topic\":\"franzininho-wifi/button_1/trigger\",\"payload\":\"pressed\",\"type\":\"button_short_press\",\"subtype\":\"button_1\",\"device\":{\"name\":\"franzininho-wifi\",\"identifiers\":[\"615830010\"]},\"name\":\"Franzininho-WiFi Button 1\",\"platform\":\"device_automation\"}"
-#define HA_CONFIG_TOPIC      "homeassistant/device_automation/615830010/button_1/config"
-#define HA_COMMAND_TOPIC     "franzininho-wifi/button_1/trigger"
+#define BUTTON_GPIO    ((gpio_num_t) 3)
 
 static const char *s_TAG = "main_app";
 static TaskHandle_t s_app_task;
 
 static void s_GpioIsr(void *args);
-static esp_err_t s_InitGpio(void);
+static esp_err_t s_InitGpio();
 
-void app_main(void) {
+extern "C" void app_main() {
 
   s_app_task = xTaskGetCurrentTaskHandle();
   bool state = false;
   int64_t previous_time = esp_timer_get_time();
 
   ESP_LOGI(s_TAG, "[APP] Startup..");
+  ESP_ERROR_CHECK(OledInit());
+  OledDrawBitmap(128, 64, 0, 0, franzininho_logo);
   ESP_LOGI(s_TAG, "[APP] Free memory: %" PRIu32 " bytes", esp_get_free_heap_size());
   ESP_LOGI(s_TAG, "[APP] IDF version: %s", esp_get_idf_version());
   ESP_ERROR_CHECK(nvs_flash_init());
   ESP_ERROR_CHECK(esp_netif_init());
-  ESP_ERROR_CHECK(esp_event_loop_create_default());
-  ESP_ERROR_CHECK(OledInit());
-  OledDrawBitmap(128, 64, 0, 0, franzininho_logo);
-  ESP_ERROR_CHECK(example_connect());
   ESP_ERROR_CHECK(s_InitGpio());
+  ESP_ERROR_CHECK(esp_event_loop_create_default());
+  ESP_ERROR_CHECK(example_connect());
   ESP_ERROR_CHECK(MqttInit());
 
   ESP_LOGI(s_TAG, "[APP] Free memory after initialization: %" PRIu32 " bytes", esp_get_free_heap_size());
 
   vTaskDelay(pdMS_TO_TICKS(5000));
 
-  ESP_LOGI(s_TAG, "Registering HA MQTT Button Device");
-  ESP_ERROR_CHECK(MqttPublish(HA_CONFIG_TOPIC, HA_CONFIG_MSG, 0, 0, 1));
+  MqttSwitch switch_1;
+  switch_1.Connect();
 
   while(true) {
     ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
@@ -101,7 +98,6 @@ void app_main(void) {
           vTaskDelay(pdMS_TO_TICKS(FRAME_DELAY));
         }
       }
-      MqttPublish(HA_COMMAND_TOPIC, "pressed", 0, 0, 0);
       state = !state;
       previous_time = esp_timer_get_time();
     }
