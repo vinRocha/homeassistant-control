@@ -39,11 +39,11 @@
 extern "C" {
 #endif
 
-typedef void (*mqtt_subscription_cb)(const char *data, int data_len);
+typedef void (*mqtt_subscription_cb)(const char *data, int data_len, void *user_ctx);
 
 esp_err_t MqttInit(void);
 esp_err_t MqttPublish(const char *topic, const char *message, int len, int qos, int retain);
-esp_err_t MqttSubscribe(const char *topic, int qos, mqtt_subscription_cb callback);
+esp_err_t MqttSubscribe(const char *topic, int qos, mqtt_subscription_cb callback, void *user_ctx);
 esp_err_t MqttUnsubscribe(const char *topic);
 
 #ifdef __cplusplus

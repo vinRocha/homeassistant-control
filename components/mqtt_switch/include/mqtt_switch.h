@@ -32,21 +32,23 @@
 
 #include "esp_err.h"
 
+typedef void (*user_cb)();
+
 class MqttSwitch {
 public:
-  MqttSwitch();
-  esp_err_t Connect();
+  MqttSwitch(bool ha_switch = 0, user_cb user_callback = nullptr);
+  bool get();
   esp_err_t set();
   esp_err_t reset();
   esp_err_t toggle();
+  esp_err_t Connect();
 
 private:
-  static const int c_switch_size  = 400;
-  static const int c_command_size =  30;
-  static const int c_state_size   =  30;
   static unsigned s_m_count;
-  unsigned char m_state;
+  bool m_state;
+  bool m_ha_switch;
   const unsigned m_index;
-  void mCallback(const char *data, int data_len);
+  user_cb m_user_callback;
+  static void mCallback(const char *data, int data_len, void *user_ctx);
   esp_err_t PublishState();
 };

@@ -16,4 +16,8 @@ menu "MQTT Manager"
         bool "MQTT null client id"
         default true
 
+    config MQTT_SUB_TOPIC_MAX_LEN
+        int "MQTT Subscription Topic String Max Length"
+        default 50
+
 endmenu

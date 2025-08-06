@@ -50,8 +50,9 @@
 static const char *s_TAG = "MQTT_M";
 
 typedef struct subscriptions {
-  const char *topic;
+  char *topic;
   mqtt_subscription_cb callback;
+  void *user_ctx;
   struct subscriptions *next;
 } subscriptions;
 
@@ -88,6 +89,10 @@ static void s_MqttEventHandler(void *handler_args, esp_event_base_t base, int32_
   esp_mqtt_event_handle_t event = event_data;
   subscriptions *current;
   switch ((esp_mqtt_event_id_t)event_id) {
+  case MQTT_EVENT_BEFORE_CONNECT:
+    ESP_LOGI(s_TAG, "MQTT_EVENT_BEFORE_CONNECT");
+    break;
+
   case MQTT_EVENT_CONNECTED:
     ESP_LOGI(s_TAG, "MQTT_EVENT_CONNECTED");
     break;
@@ -114,7 +119,7 @@ static void s_MqttEventHandler(void *handler_args, esp_event_base_t base, int32_
     while (current != s_d_state.tail) {
         if (!strncmp(event->topic, current->topic, event->topic_len)) {
           if (current->callback)
-            current->callback(event->data, event->data_len);
+            current->callback(event->data, event->data_len, current->user_ctx);
           break;
         }
         current = current->next;
@@ -193,19 +198,32 @@ esp_err_t MqttPublish(const char *topic, const char *message, int len, int qos, 
   return ESP_OK;
 }
 
-esp_err_t MqttSubscribe(const char *topic, int qos, mqtt_subscription_cb callback) {
+esp_err_t MqttSubscribe(const char *topic, int qos, mqtt_subscription_cb callback, void *user_ctx) {
 
   if (!s_d_state.initialised)
     return ESP_ERR_INVALID_STATE;
 
-  if(!s_d_state.tail)
+  if (!s_d_state.tail)
     return ESP_ERR_NO_MEM;
 
-  if (esp_mqtt_client_subscribe(s_d_state.client, topic, qos) < 0)
-    return ESP_FAIL;
+  unsigned topic_len = strlen(topic);
+  if (topic_len > CONFIG_MQTT_SUB_TOPIC_MAX_LEN)
+    return ESP_ERR_INVALID_ARG;
 
-  s_d_state.tail->topic = topic;
+  topic_len++;
+  s_d_state.tail->topic = (char*) malloc(topic_len);
+
+  if (!s_d_state.tail->topic)
+    return ESP_ERR_NO_MEM;
+
+  if (esp_mqtt_client_subscribe(s_d_state.client, topic, qos) < 0) {
+    free (s_d_state.tail->topic);
+    return ESP_FAIL;
+  }
+
+  strncpy(s_d_state.tail->topic, topic, topic_len);
   s_d_state.tail->callback = callback;
+  s_d_state.tail->user_ctx = user_ctx;
   s_d_state.tail->next = (subscriptions*) calloc(1, sizeof(subscriptions));
   s_d_state.tail = s_d_state.tail->next;
   return ESP_OK;
