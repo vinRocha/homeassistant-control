@@ -20,17 +20,15 @@
 /**
  * @file app_main.c
  *
- * @brief Example of use of mqtt_manager component.
+ * @brief Example of use of mqtt_switch component.
  *
  * @author Vinicius Silva <silva.viniciusr@gmail.com>
  *
  * @date July 12th 2025
  *
- * Component based on
- * https://github.com/espressif/esp-idf/tree/v5.4.2/examples/protocols/mqtt/ssl
- *
  */
 
+#include <cstdint>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
@@ -38,90 +36,107 @@
 #include "esp_event.h"
 #include "protocol_examples_common.h"
 #include "driver/gpio.h"
+#include "esp_intr_alloc.h"
 #include "mqtt_manager.h"
 #include "mqtt_switch.h"
-#include "esp_timer.h"
 #include "esp_err.h"
-//#include "esp_log.h"
+#include "esp_log.h"
+#include "ssd1306.h"
 #include "images.h"
-#include "oled_driver.h"
 
-#define BUTTON_GPIO    ((gpio_num_t)  3)
-#define    LED_GPIO    ((gpio_num_t) 14)
+#define BUTTON_GPIOS ( 1LLU << 7 | 1LLU << 6 | 1LLU << 5 | \
+                       1LLU << 4 | 1LLU << 3 | 1LLU << 2 )
+
+constexpr gpio_num_t c_led_gpio = (gpio_num_t) 14;
+
+struct app_ctx {
+  TaskHandle_t main_task;
+  SSD1306_t *ssd1306;
+};
 
 static const char *s_TAG = "main_app";
-static TaskHandle_t s_app_task;
+static app_ctx DRAM_ATTR app_cfg;
 
-static void led_sync_cb();
-static MqttSwitch switch_1 (false);
-static MqttSwitch switch_2(true, led_sync_cb);
-
-static esp_err_t Init();
-static esp_err_t s_InitGpio();
-static void s_GpioIsr(void *args);
+static esp_err_t s_BoardInit();
+static void s_DrawBaseGui();
+static void s_PlayAnimation(bool state);
+static void s_switch_cb(MqttSwitch *switch_p);
+static void s_led_cb(MqttSwitch *switch_p);
 
 extern "C" void app_main() {
 
-  s_app_task = xTaskGetCurrentTaskHandle();
-  int64_t previous_time = esp_timer_get_time();
+  SSD1306_t display;
+  app_cfg.ssd1306 = &display;
+  ESP_ERROR_CHECK(s_BoardInit());
 
-  ESP_ERROR_CHECK(Init());
+  MqttSwitch switches[6] = {
+    MqttSwitch(false, s_switch_cb),
+    MqttSwitch(false, s_switch_cb),
+    MqttSwitch(false, s_switch_cb),
+    MqttSwitch(false, s_switch_cb),
+    MqttSwitch(false, s_switch_cb),
+    MqttSwitch(true, s_led_cb)
+  };
 
-  ESP_ERROR_CHECK(switch_1.Connect());
-  ESP_ERROR_CHECK(switch_2.Connect());
-  ESP_ERROR_CHECK(switch_2.reset());
+  ESP_ERROR_CHECK(switches[0].Connect());
+  ESP_ERROR_CHECK(switches[1].Connect());
+  ESP_ERROR_CHECK(switches[2].Connect());
+  ESP_ERROR_CHECK(switches[3].Connect());
+  ESP_ERROR_CHECK(switches[4].Connect());
+  ESP_ERROR_CHECK(switches[5].Connect());
+  ESP_ERROR_CHECK(switches[5].reset());
 
+  int selection = 0;
+  s_DrawBaseGui();
   while(true) {
-    ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
-    if ((esp_timer_get_time() - previous_time) > 1000 * 1000) {
-      switch_1.toggle();
-      if (switch_1.get()) {
-        for (int i = 0; i < 2 * FRAME_COUNT - 10; i++) {
-          OledDrawBitmap(FRAME_WIDTH, FRAME_HEIGHT, FRAME_START_X, FRAME_START_Y,
-                         light_on[i % FRAME_COUNT]);
-          vTaskDelay(pdMS_TO_TICKS(FRAME_DELAY));
-        }
+    ssd1306_display_text(app_cfg.ssd1306, selection + 2, " -> ", 4, false);
+    uint32_t input = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
+    /* If input, process it. */
+    if (input) {
+      ssd1306_display_text(app_cfg.ssd1306, selection + 2, "    ", 4, false);
+      ESP_LOGI(s_TAG, "Received notification. Processing GPIO%.2u press ", input);
+      switch (input) {
+        case (7) : //Button UP
+          if (selection == 0)
+            selection = 5;
+          else
+            --selection;
+          break;
+        case (4) : //Button DOWN
+          ++selection;
+          selection %= 6;
+          break;
+        case (2) : //Button ENTER
+          switches[selection].toggle();
+          s_PlayAnimation(switches[selection].get());
+          s_DrawBaseGui();
+          break;
+        default :
+        ESP_LOGI(s_TAG, "Unknown function for GPIO%.2u", input);
       }
-      else {
-        for (int i = 0; i < 3 * FRAME_COUNT / 2; i++) {
-          OledDrawBitmap(FRAME_WIDTH, FRAME_HEIGHT, FRAME_START_X, FRAME_START_Y,
-                         light_off[i % FRAME_COUNT]);
-          vTaskDelay(pdMS_TO_TICKS(FRAME_DELAY));
-        }
-      }
-      previous_time = esp_timer_get_time();
+      //deboucing....
+      vTaskDelay(180 / portTICK_PERIOD_MS);
+      ulTaskNotifyTake(pdTRUE, 0);
     }
+    else
+      ESP_LOGI(s_TAG, "Notification not received. Trying again...");
   }
 }
 
-esp_err_t Init() {
+static void IRAM_ATTR s_GpioIsr(void *args) {
 
-  esp_err_t rc;
-  if ((rc = OledInit()))
-    return rc;
-  if ((rc = OledDrawBitmap(128, 64, 0, 0, franzininho_logo)))
-    return rc;
-  if ((rc = nvs_flash_init()))
-    return rc;
-  if ((rc = esp_netif_init()))
-    return rc;
-  if ((rc = s_InitGpio()))
-    return rc;
-  if ((rc = esp_event_loop_create_default()))
-    return rc;
-  if ((rc = example_connect()))
-    return rc;
-  if ((rc = MqttInit()))
-    return rc;
-  vTaskDelay(pdMS_TO_TICKS(5000));
-  return rc = MqttPublish("franzininho-wifi/status", "online", 0, 0, 1);
+  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
+  uint32_t gpio = (uint32_t) args;
+  xTaskNotifyFromISR(app_cfg.main_task, gpio, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
+  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
-esp_err_t s_InitGpio(void) {
+static esp_err_t s_InitGpio(void *args) {
 
+  /* Buttons */
   esp_err_t rc;
   gpio_config_t gpio_handle = {
-    .pin_bit_mask = 1LLU << BUTTON_GPIO,
+    .pin_bit_mask = BUTTON_GPIOS,
     .mode = GPIO_MODE_INPUT,
     .pull_up_en = GPIO_PULLUP_ENABLE,
     .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -131,14 +146,17 @@ esp_err_t s_InitGpio(void) {
   if ((rc = gpio_config(&gpio_handle)))
     return rc;
 
-  if ((rc = gpio_install_isr_service(ESP_INTR_FLAG_LOWMED|ESP_INTR_FLAG_EDGE)))
+  if ((rc = gpio_install_isr_service(ESP_INTR_FLAG_LOWMED|ESP_INTR_FLAG_EDGE|ESP_INTR_FLAG_IRAM)))
     return rc;
 
-  if ((rc = gpio_isr_handler_add(BUTTON_GPIO, s_GpioIsr, NULL)))
-    return rc;
+  for (uint32_t index = 2; index < 8; index++) {
+    if ((rc = gpio_isr_handler_add((gpio_num_t) index, s_GpioIsr, (void*) index)))
+      return rc;
+  }
 
+  /* LED */
   gpio_handle = {
-    .pin_bit_mask = 1LLU << LED_GPIO,
+    .pin_bit_mask = 1LLU << c_led_gpio,
     .mode = GPIO_MODE_OUTPUT,
     .pull_up_en = GPIO_PULLUP_DISABLE,
     .pull_down_en = GPIO_PULLDOWN_DISABLE,
@@ -148,13 +166,71 @@ esp_err_t s_InitGpio(void) {
   return rc = gpio_config(&gpio_handle);
 }
 
-void s_GpioIsr(void *args) {
+static void s_InitSsd1306() {
 
-  BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-  vTaskNotifyGiveFromISR(s_app_task, &xHigherPriorityTaskWoken);
-  portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
+  i2c_master_init(app_cfg.ssd1306, CONFIG_SDA_GPIO, CONFIG_SCL_GPIO, CONFIG_RESET_GPIO);
+  ssd1306_init(app_cfg.ssd1306, 128, 64);
+  ssd1306_clear_screen(app_cfg.ssd1306, false);
+  ssd1306_contrast(app_cfg.ssd1306, 0x7f);
+  ssd1306_bitmaps(app_cfg.ssd1306, 0, 0, franzininho_logo, 128, 64, false);
 }
 
-void led_sync_cb() {
-  gpio_set_level(LED_GPIO, switch_2.get());
+void s_DrawBaseGui() {
+
+  ssd1306_clear_screen(app_cfg.ssd1306, false);
+  ssd1306_display_text(app_cfg.ssd1306, 0, "Franzininho WiFi", 16, false);
+  ssd1306_display_text(app_cfg.ssd1306, 1, " Home Assistant ", 16, false);
+  ssd1306_display_text(app_cfg.ssd1306, 2, "    Switch 1", 12, false);
+  ssd1306_display_text(app_cfg.ssd1306, 3, "    Switch 2", 12, false);
+  ssd1306_display_text(app_cfg.ssd1306, 4, "    Switch 3", 12, false);
+  ssd1306_display_text(app_cfg.ssd1306, 5, "    Switch 4", 12, false);
+  ssd1306_display_text(app_cfg.ssd1306, 6, "    Switch 5", 12, false);
+  ssd1306_display_text(app_cfg.ssd1306, 7, "    Red LED ", 12, false);
+}
+
+void s_PlayAnimation(bool state) {
+
+  ssd1306_clear_screen(app_cfg.ssd1306, false);
+  if (state) {
+    for (int i = 0; i < 2 * FRAME_COUNT - 10; i++) {
+      ssd1306_bitmaps(app_cfg.ssd1306, FRAME_START_X, FRAME_START_Y, light_on[i % FRAME_COUNT],
+                       FRAME_WIDTH, FRAME_HEIGHT, false);
+      vTaskDelay(pdMS_TO_TICKS(FRAME_DELAY));
+    }
+  }
+  else {
+    for (int i = 0; i < 3 * FRAME_COUNT / 2; i++) {
+      ssd1306_bitmaps(app_cfg.ssd1306, FRAME_START_X, FRAME_START_Y, light_off[i % FRAME_COUNT],
+                       FRAME_WIDTH, FRAME_HEIGHT, false);
+      vTaskDelay(pdMS_TO_TICKS(FRAME_DELAY));
+    }
+  }
+}
+
+esp_err_t s_BoardInit() {
+
+  esp_err_t rc;
+  app_cfg.main_task = xTaskGetCurrentTaskHandle();
+  s_InitSsd1306();
+  if ((rc = nvs_flash_init()))
+    return rc;
+  if ((rc = esp_netif_init()))
+    return rc;
+  if ((rc = s_InitGpio(NULL)))
+    return rc;
+  if ((rc = esp_event_loop_create_default()))
+    return rc;
+  if ((rc = example_connect()))
+    return rc;
+  if ((rc = MqttInit()))
+    return rc;
+  vTaskDelay(5000 / portTICK_PERIOD_MS);
+  return rc = MqttPublish("franzininho-wifi/status", "online", 0, 0, 1);
+}
+
+void s_switch_cb(MqttSwitch *switch_p) {
+}
+
+void s_led_cb(MqttSwitch *switch_p) {
+  gpio_set_level(c_led_gpio, switch_p->get());
 }

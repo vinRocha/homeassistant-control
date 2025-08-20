@@ -32,7 +32,8 @@
 
 #include "esp_err.h"
 
-typedef void (*user_cb)();
+class MqttSwitch;
+typedef void (*user_cb)(MqttSwitch *user_ctx);
 
 class MqttSwitch {
 public:

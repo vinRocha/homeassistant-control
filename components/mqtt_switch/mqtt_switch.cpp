@@ -114,7 +114,7 @@ esp_err_t MqttSwitch::set() {
 
   m_state = true;
   if (m_user_callback)
-    m_user_callback();
+    m_user_callback(this);
   if (m_ha_switch)
     return PublishState();
   return ESP_OK;
@@ -124,7 +124,7 @@ esp_err_t MqttSwitch::reset() {
 
   m_state = false;
   if (m_user_callback)
-    m_user_callback();
+    m_user_callback(this);
   if (m_ha_switch)
     return PublishState();
   return ESP_OK;
@@ -134,7 +134,7 @@ esp_err_t MqttSwitch::toggle() {
 
   m_state = !m_state;
   if (m_user_callback)
-    m_user_callback();
+    m_user_callback(this);
   return PublishState();
 }
 
@@ -149,7 +149,7 @@ void MqttSwitch::mCallback(const char *data, int data_len, void *user_ctx) {
       my_switch->reset();
     }
     if (my_switch->m_user_callback)
-      my_switch->m_user_callback();
+      my_switch->m_user_callback((MqttSwitch*)user_ctx);
   }
 }
 

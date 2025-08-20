@@ -155,7 +155,8 @@ esp_err_t MqttInit(void) {
   const esp_mqtt_client_config_t mqtt_cfg = {
     .broker = {
       .address.uri = CONFIG_MQTT_BROKER_URI,
-      .verification.crt_bundle_attach = esp_crt_bundle_attach
+      .verification.crt_bundle_attach = esp_crt_bundle_attach,
+//      .verification.skip_cert_common_name_check = true
     },
     .credentials = {
       .username = CONFIG_MQTT_USERNAME,
