@@ -67,6 +67,7 @@ extern "C" void app_main() {
 
   SSD1306_t display;
   app_cfg.ssd1306 = &display;
+  app_cfg.main_task = xTaskGetCurrentTaskHandle();
   ESP_ERROR_CHECK(s_BoardInit());
 
   MqttSwitch switches[6] = {
@@ -210,7 +211,6 @@ void s_PlayAnimation(bool state) {
 esp_err_t s_BoardInit() {
 
   esp_err_t rc;
-  app_cfg.main_task = xTaskGetCurrentTaskHandle();
   s_InitSsd1306();
   if ((rc = nvs_flash_init()))
     return rc;
@@ -224,7 +224,7 @@ esp_err_t s_BoardInit() {
     return rc;
   if ((rc = MqttInit()))
     return rc;
-  vTaskDelay(5000 / portTICK_PERIOD_MS);
+  vTaskDelay(3000 / portTICK_PERIOD_MS);
   return rc = MqttPublish("franzininho-wifi/status", "online", 0, 0, 1);
 }
 
