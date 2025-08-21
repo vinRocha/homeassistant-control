@@ -35,6 +35,7 @@
 #include "esp_netif.h"
 #include "esp_event.h"
 #include "protocol_examples_common.h"
+#include "soc/gpio_reg.h"
 #include "driver/gpio.h"
 #include "esp_intr_alloc.h"
 #include "mqtt_manager.h"
@@ -89,32 +90,33 @@ extern "C" void app_main() {
 
   int selection = 0;
   s_DrawBaseGui();
+  ssd1306_display_text(app_cfg.ssd1306, selection + 2, " -> ", 4, false);
   while(true) {
-    ssd1306_display_text(app_cfg.ssd1306, selection + 2, " -> ", 4, false);
     uint32_t input = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     /* If input, process it. */
     if (input) {
+      ESP_LOGI(s_TAG, "Received notification. Processing GPIO mask %#.8x.", input);
       ssd1306_display_text(app_cfg.ssd1306, selection + 2, "    ", 4, false);
-      ESP_LOGI(s_TAG, "Received notification. Processing GPIO%.2u press ", input);
       switch (input) {
-        case (7) : //Button UP
+        case (1LLU << 7) : //Button UP
           if (selection == 0)
             selection = 5;
           else
             --selection;
           break;
-        case (4) : //Button DOWN
+        case (1LLU << 4) : //Button DOWN
           ++selection;
           selection %= 6;
           break;
-        case (2) : //Button ENTER
+        case (1LLU << 2) : //Button ENTER
           switches[selection].toggle();
           s_PlayAnimation(switches[selection].get());
           s_DrawBaseGui();
           break;
         default :
-        ESP_LOGI(s_TAG, "Unknown function for GPIO%.2u", input);
+        ESP_LOGI(s_TAG, "Unknown function for GPIO mask: %#.8x", input);
       }
+      ssd1306_display_text(app_cfg.ssd1306, selection + 2, " -> ", 4, false);
       //deboucing....
       vTaskDelay(180 / portTICK_PERIOD_MS);
       ulTaskNotifyTake(pdTRUE, 0);
@@ -127,8 +129,13 @@ extern "C" void app_main() {
 static void IRAM_ATTR s_GpioIsr(void *args) {
 
   BaseType_t xHigherPriorityTaskWoken = pdFALSE;
-  uint32_t gpio = (uint32_t) args;
-  xTaskNotifyFromISR(app_cfg.main_task, gpio, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
+  uint32_t gpio_intr_status = READ_PERI_REG(GPIO_STATUS_REG);     //read status to get interrupt status for GPIO0-31
+  uint32_t gpio_num = gpio_intr_status & (1LLU << 7 | 1LLU << 4 | 1LLU << 2);
+  if (gpio_num) //If Button UP, DOWN or ENTER, wake main app task.
+    xTaskNotifyFromISR(app_cfg.main_task, gpio_num, eSetValueWithOverwrite, &xHigherPriorityTaskWoken);
+  SET_PERI_REG_MASK(GPIO_STATUS_W1TC_REG, gpio_intr_status);      //Clear intr for gpio0-gpio31
+  gpio_intr_status = READ_PERI_REG(GPIO_STATUS1_REG);             //read status1 to get interrupt status for GPIO32-39
+  SET_PERI_REG_MASK(GPIO_STATUS1_W1TC_REG, gpio_intr_status);     //Clear intr for gpio32-39, eventough we dont expect any.
   portYIELD_FROM_ISR(xHigherPriorityTaskWoken);
 }
 
@@ -147,13 +154,9 @@ static esp_err_t s_InitGpio(void *args) {
   if ((rc = gpio_config(&gpio_handle)))
     return rc;
 
-  if ((rc = gpio_install_isr_service(ESP_INTR_FLAG_LOWMED|ESP_INTR_FLAG_EDGE|ESP_INTR_FLAG_IRAM)))
+  if ((rc = gpio_isr_register(s_GpioIsr, args, ESP_INTR_FLAG_LOWMED|ESP_INTR_FLAG_IRAM|
+                                               ESP_INTR_FLAG_EDGE, NULL)))
     return rc;
-
-  for (uint32_t index = 2; index < 8; index++) {
-    if ((rc = gpio_isr_handler_add((gpio_num_t) index, s_GpioIsr, (void*) index)))
-      return rc;
-  }
 
   /* LED */
   gpio_handle = {
