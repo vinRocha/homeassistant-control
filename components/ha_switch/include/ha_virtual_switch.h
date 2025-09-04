@@ -18,36 +18,39 @@
  */
 
 /**
- * @file ha_switch.h
+ * @file ha_virtual_switch.h
  *
- * @brief ha_switch Class encapsulates mqtt_device_trigger and mqtt_switch.
+ * @brief ha_virtual_switch Interface definition.
  *
  * @author Vinicius Silva <silva.viniciusr@gmail.com>
  *
- * @date September 04th 2025
+ * @date Septmeber 04th 2025
  *
  */
 
 #pragma once
 
 #include "esp_err.h"
+#include "ha_switch.h"
 
-class HaSwitch;
-class HaVirtualSwitch;
-typedef void (*user_cb)(HaSwitch *user_ctx);
-
-class HaSwitch {
+class HaVirtualSwitch {
 public:
-  const user_cb m_user_callback;
-  HaSwitch(bool gui_switch = 0, user_cb user_callback = nullptr);
-  ~HaSwitch();
+  HaVirtualSwitch(unsigned index) : m_state(0), m_index(index) {}
+  virtual ~HaVirtualSwitch() {}
   bool get();
-  esp_err_t set();
-  esp_err_t reset();
-  esp_err_t toggle();
-  esp_err_t Connect();
+  esp_err_t toggle(HaSwitch *ha_switch_p);
+  virtual esp_err_t set(HaSwitch *ha_switch_p) = 0;
+  virtual esp_err_t reset(HaSwitch *ha_switch_p) = 0;
+  virtual esp_err_t Connect(HaSwitch *ha_switch_p) = 0;
 
-private:
-  HaVirtualSwitch *m_switch_p;
-  static unsigned s_m_count;
+protected:
+  bool m_state;
+  const unsigned m_index;
+  virtual esp_err_t PublishState() = 0;
+  static void mCallback(const char *data, int data_len, void *user_ctx);
+  static const char *s_t_action;
+  static const char *s_t_state;
+  static const char *s_on;
+  static const char *s_off;
+  static const char *s_press;
 };

@@ -18,9 +18,9 @@
  */
 
 /**
- * @file ha_switch.h
+ * @file mqtt_device_trigger.h
  *
- * @brief ha_switch Class encapsulates mqtt_device_trigger and mqtt_switch.
+ * @brief mqtt_device_trigger Class.
  *
  * @author Vinicius Silva <silva.viniciusr@gmail.com>
  *
@@ -30,24 +30,16 @@
 
 #pragma once
 
-#include "esp_err.h"
+#include "ha_virtual_switch.h"
 
-class HaSwitch;
-class HaVirtualSwitch;
-typedef void (*user_cb)(HaSwitch *user_ctx);
-
-class HaSwitch {
+class MqttDeviceTrigger : public HaVirtualSwitch {
 public:
-  const user_cb m_user_callback;
-  HaSwitch(bool gui_switch = 0, user_cb user_callback = nullptr);
-  ~HaSwitch();
-  bool get();
-  esp_err_t set();
-  esp_err_t reset();
-  esp_err_t toggle();
-  esp_err_t Connect();
+  MqttDeviceTrigger(unsigned index) : HaVirtualSwitch(index) {}
+  ~MqttDeviceTrigger() override {}
+  esp_err_t set(HaSwitch *ha_switch_p) override;
+  esp_err_t reset(HaSwitch *ha_switch_p) override;
+  esp_err_t Connect(HaSwitch *ha_switch_p) override;
 
 private:
-  HaVirtualSwitch *m_switch_p;
-  static unsigned s_m_count;
+  esp_err_t PublishState() override;
 };
