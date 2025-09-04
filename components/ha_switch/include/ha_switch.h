@@ -18,9 +18,9 @@
  */
 
 /**
- * @file mqtt_switch.h
+ * @file ha_switch.h
  *
- * @brief mqtt_switch Class.
+ * @brief ha_switch Class.
  *
  * @author Vinicius Silva <silva.viniciusr@gmail.com>
  *
