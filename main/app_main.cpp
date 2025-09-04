@@ -89,13 +89,13 @@ extern "C" void app_main() {
 
   int selection = 0;
   s_DrawBaseGui();
-  ssd1306_display_text(s_app_cfg.ssd1306, selection + 2, " -> ", 4, false);
+  ssd1306_display_text(s_app_cfg.ssd1306, selection + 1, " -> ", 4, false);
   while(true) {
     uint32_t input = ulTaskNotifyTake(pdTRUE, portMAX_DELAY);
     /* If input, process it. */
     if (input) {
       ESP_LOGI(s_TAG, "Received notification. Processing GPIO mask %#.8x.", input);
-      ssd1306_display_text(s_app_cfg.ssd1306, selection + 2, "    ", 4, false);
+      ssd1306_display_text(s_app_cfg.ssd1306, selection + 1, "    ", 4, false);
       switch (input) {
         case (1LLU << 7) : //Button UP
           if (selection == 0)
@@ -115,7 +115,7 @@ extern "C" void app_main() {
         default :
         ESP_LOGI(s_TAG, "Unknown function for GPIO mask: %#.8x", input);
       }
-      ssd1306_display_text(s_app_cfg.ssd1306, selection + 2, " -> ", 4, false);
+      ssd1306_display_text(s_app_cfg.ssd1306, selection + 1, " -> ", 4, false);
       //deboucing....
       vTaskDelay(180 / portTICK_PERIOD_MS);
       ulTaskNotifyTake(pdTRUE, 0);
