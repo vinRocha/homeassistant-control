@@ -1,6 +1,4 @@
-This project provides a ha_switch component for ESP-IDF which implements Home Assistant's [MQTT Switches](https://www.home-assistant.io/integrations/switch.mqtt/) and [MQTT Device Triggers](https://www.home-assistant.io/integrations/device_trigger.mqtt/). These objects are abstracted by HaSwitch class.
-
-Objects of HaSwitch allow you to easily integrate your ESP-IDF projects with a Home Assistant instalation through MQTT.
+This project provides an ha_switch component for ESP-IDF which implements Home Assistant's [MQTT Switches](https://www.home-assistant.io/integrations/switch.mqtt/) and [MQTT Device Triggers](https://www.home-assistant.io/integrations/device_trigger.mqtt/) integrations. Classes for these integrations are abstracted by objects of HaSwitch class.
 
 ## Getting started
 
