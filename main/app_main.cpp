@@ -45,9 +45,9 @@
 #include "ssd1306.h"
 #include "images.h"
 
-constexpr gpio_num_t c_led_gpio      = (gpio_num_t) 14;
-constexpr   uint64_t c_buttons_gpios = ( 1LLU << 7 | 1LLU << 6 | 1LLU << 5 | \
-                                         1LLU << 4 | 1LLU << 3 | 1LLU << 2 );
+constexpr gpio_num_t c_led_gpio {GPIO_NUM_14};
+constexpr uint64_t   c_buttons_gpios { 1LLU << 7 | 1LLU << 6 | 1LLU << 5 | \
+                                       1LLU << 4 | 1LLU << 3 | 1LLU << 2 };
 
 struct app_ctx {
   TaskHandle_t main_task;
