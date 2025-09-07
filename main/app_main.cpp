@@ -18,7 +18,7 @@
  */
 
 /**
- * @file app_main.c
+ * @file app_main.cpp
  *
  * @brief Example of use of ha_switch component.
  *
@@ -70,7 +70,8 @@ extern "C" void app_main() {
 
   ESP_ERROR_CHECK(s_BoardInit());
 
-  HaSwitch switches[6] = {
+  constexpr int num_switches {6};
+  HaSwitch switches[num_switches] {
     HaSwitch(false),
     HaSwitch(false),
     HaSwitch(false),
@@ -79,12 +80,12 @@ extern "C" void app_main() {
     HaSwitch(true, s_led_cb)
   };
 
-  ESP_ERROR_CHECK(switches[0].Connect());
-  ESP_ERROR_CHECK(switches[1].Connect());
-  ESP_ERROR_CHECK(switches[2].Connect());
-  ESP_ERROR_CHECK(switches[3].Connect());
-  ESP_ERROR_CHECK(switches[4].Connect());
-  ESP_ERROR_CHECK(switches[5].Connect());
+  for (auto &my_switch : switches) {
+    ESP_ERROR_CHECK(my_switch.Connect());
+  }
+
+  /* We call reset() to synchronize the state of the physical
+   * LED with the application and MQTT integration */
   ESP_ERROR_CHECK(switches[5].reset());
 
   int selection = 0;
@@ -99,13 +100,13 @@ extern "C" void app_main() {
       switch (input) {
         case (1LLU << 7) : //Button UP
           if (selection == 0)
-            selection = 5;
+            selection = (num_switches - 1);
           else
             --selection;
           break;
         case (1LLU << 4) : //Button DOWN
           ++selection;
-          selection %= 6;
+          selection %= (num_switches);
           break;
         case (1LLU << 2) : //Button ENTER
           switches[selection].toggle();
@@ -154,7 +155,7 @@ static esp_err_t s_InitGpio(void *args) {
   if ((rc = gpio_config(&gpio_handle)))
     return rc;
 
-  if ((rc = gpio_isr_register(s_GpioIsr, args, ESP_INTR_FLAG_LOWMED|ESP_INTR_FLAG_IRAM|
+  if ((rc = gpio_isr_register(s_GpioIsr, args, ESP_INTR_FLAG_LOWMED | ESP_INTR_FLAG_IRAM |
                                                ESP_INTR_FLAG_EDGE, NULL)))
     return rc;
 
